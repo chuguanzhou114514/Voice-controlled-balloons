@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>声控气球</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Arial Rounded MT Bold', Arial, sans-serif;
+        }
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            background: linear-gradient(180deg, #1a1a2e, #16213e);
+        }
+        .balloon {
+            position: absolute;
+            border-radius: 50%;
+            transition: all 0.1s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            box-shadow: 0 4px 15px rgba(255,255,255,0.3);
+            filter: saturate(120%);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .control-panel {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(255,255,255,0.15);
+            padding: 15px;
+            border-radius: 15px;
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.25);
+            color: white;
+            z-index: 100;
+        }
+        .threshold-control {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        input[type="number"], input[type="range"] {
+            width: 100px;
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.3);
+            background: rgba(0,0,0,0.3);
+            color: white;
+            font-size: 14px;
+        }
+        button.control-btn {
+            padding: 8px 15px;
+            border-radius: 8px;
+            border: none;
+            background: #00b4d8;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        button.control-btn:hover {
+            background: #0096c7;
+            transform: scale(1.05);
+        }
+        .db-meter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.7);
+            padding: 12px 24px;
+            border-radius: 10px;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+        #startButton {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 18px 45px;
+            font-size: 22px;
+            background: #00b4d8;
+            color: white;
+            border: none;
+            border-radius: 35px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+            box-shadow: 0 8px 25px rgba(0,180,216,0.4);
+            z-index: 100;
+        }
+        #startButton:hover {
+            background: #0096c7;
+            transform: translate(-50%, -50%) scale(1.15);
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div class="control-panel">
+        <div class="threshold-control">
+            <input type="number" id="thresholdInput" min="0" max="100" value="50">
+            <button class="control-btn" onclick="setThreshold()">设置阈值</button>
+        </div>
+        <div class="threshold-control" style="margin-top:15px">
+            <input type="range" id="sensitivityInput" min="1" max="100" value="35">
+            <button class="control-btn" onclick="setSensitivity()">灵敏度</button>
+        </div>
+        <div class="threshold-control" style="margin-top:15px">
+            <input type="number" id="countInput" min="1" max="100" value="15">
+            <button class="control-btn" onclick="setBalloonCount()">气球数量</button>
+        </div>
+    </div>
+    <div class="db-meter">🔊 当前：-- dB | 阈值：50 dB</div>
+    <button id="startButton">🎤 开始声控</button>
+
+    <script>
+        class Balloon {
+            constructor(container) {
+                this.container = container;
+                this.radius = Math.random() * 40 + 20;
+                this.mass = this.radius * 0.5;
+                this.x = Math.random() * (window.innerWidth - this.radius * 2);
+                this.y = Math.random() * window.innerHeight * 0.3;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = Math.random() * 2 + 1;
+                this.element = document.createElement('div');
+                
+                const hue = Math.random() * 360;
+                this.element.className = 'balloon';
+                this.element.style.width = `${this.radius * 2}px`;
+                this.element.style.height = `${this.radius * 2}px`;
+                this.element.style.background = `
+                    radial-gradient(circle at 30% 30%, 
+                    hsl(${hue}, 95%, 75%), 
+                    hsl(${hue}, 95%, 55%)
+                `;
+                
+                container.appendChild(this.element);
+                this.updatePosition();
+            }
+
+            update(gravity, audioData, threshold) {
+                const BASE_GRAVITY = gravity;
+                let boostForce = 0;
+
+                if (audioData.normalized > threshold / 100) {
+                    const exceed = (audioData.normalized - (threshold / 100)) * 2;
+                    boostForce = exceed * 0.6 * (60 / this.radius);
+                }
+
+                this.vy += BASE_GRAVITY - boostForce;
+                this.vx *= 0.985;
+                this.vy *= 0.985;
+
+                this.x += this.vx;
+                this.y += this.vy;
+
+                const bounce = 0.85;
+                const margin = this.radius;
+                
+                if (this.x < margin) {
+                    this.x = margin;
+                    this.vx *= -bounce;
+                }
+                if (this.x > window.innerWidth - margin) {
+                    this.x = window.innerWidth - margin;
+                    this.vx *= -bounce;
+                }
+                if (this.y < margin) {
+                    this.vy = Math.abs(this.vy) * bounce;
+                    this.y = margin;
+                }
+                if (this.y > window.innerHeight - margin) {
+                    this.vy = -Math.abs(this.vy) * bounce * 0.7;
+                    this.y = window.innerHeight - margin;
+                }
+
+                this.updatePosition();
+            }
+
+            updatePosition() {
+                const scale = 1 + Math.abs(this.vy) * 0.015;
+                this.element.style.transform = `
+                    translate(${this.x - this.radius}px, ${this.y - this.radius}px)
+                    scale(${scale})
+                `;
+                this.element.style.opacity = 0.9 + this.vy * 0.005;
+            }
+
+            checkCollision(other) {
+                const dx = other.x - this.x;
+                const dy = other.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const minDist = this.radius + other.radius;
+
+                if (distance < minDist) {
+                    const angle = Math.atan2(dy, dx);
+                    const overlap = (minDist - distance) * 0.5;
+                    
+                    this.x -= Math.cos(angle) * overlap;
+                    this.y -= Math.sin(angle) * overlap;
+                    other.x += Math.cos(angle) * overlap;
+                    other.y += Math.sin(angle) * overlap;
+
+                    const massSum = this.mass + other.mass;
+                    const [vx1, vy1] = [
+                        (this.vx * (this.mass - other.mass) + 2 * other.mass * other.vx) / massSum,
+                        (this.vy * (this.mass - other.mass) + 2 * other.mass * other.vy) / massSum
+                    ];
+                    const [vx2, vy2] = [
+                        (other.vx * (other.mass - this.mass) + 2 * this.mass * this.vx) / massSum,
+                        (other.vy * (other.mass - this.mass) + 2 * this.mass * this.vy) / massSum
+                    ];
+
+                    [this.vx, this.vy] = [vx1, vy1];
+                    [other.vx, other.vy] = [vx2, vy2];
+                }
+            }
+        }
+
+        class AudioBounceSystem {
+            constructor() {
+                this.container = document.getElementById('container');
+                this.balloons = [];
+                this.gravity = 0.25;
+                this.threshold = 50;
+                this.sensitivity = 35;
+                this.balloonCount = 15;
+                this.audioContext = null;
+                this.analyser = null;
+                this.dataArray = null;
+                this.isAnimating = false;
+                this.noiseFloor = 0.02;
+                this.smoothedDb = 0;
+
+                this.initControls();
+                this.initStartButton();
+            }
+
+            initControls() {
+                window.addEventListener('resize', () => this.handleResize());
+            }
+
+            initStartButton() {
+                document.getElementById('startButton').addEventListener('click', async () => {
+                    await this.startExperience();
+                    document.getElementById('startButton').remove();
+                });
+            }
+
+            async startExperience() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    await this.initAudio(stream);
+                    await this.calibrateNoiseFloor();
+                    this.createBalloons(this.balloonCount);
+                    this.animate();
+                } catch (err) {
+                    this.createBalloons(12);
+                    this.animate();
+                    document.querySelector('.db-meter').textContent = '🔊 麦克风不可用 | 阈值：50 dB';
+                }
+            }
+
+            async initAudio(stream) {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const source = this.audioContext.createMediaStreamSource(stream);
+                
+                this.analyser = this.audioContext.createAnalyser();
+                this.analyser.fftSize = 256;
+                this.analyser.smoothingTimeConstant = 0.8;
+                source.connect(this.analyser);
+                
+                this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+            }
+
+            async calibrateNoiseFloor() {
+                return new Promise(resolve => {
+                    let calibrationAttempts = 0;
+                    const calibrate = () => {
+                        this.analyser.getByteFrequencyData(this.dataArray);
+                        
+                        let sum = 0;
+                        for(let i = 0; i < this.dataArray.length; i++) {
+                            sum += this.dataArray[i] / 255;
+                        }
+                        const newFloor = sum / this.dataArray.length;
+                        
+                        if (calibrationAttempts < 3) {
+                            this.noiseFloor = (this.noiseFloor * calibrationAttempts + newFloor) / 
+                                          (calibrationAttempts + 1);
+                            calibrationAttempts++;
+                            setTimeout(calibrate, 300);
+                        } else {
+                            console.log('校准完成，环境噪音基准:', this.noiseFloor);
+                            resolve();
+                        }
+                    };
+                    calibrate();
+                });
+            }
+
+            createBalloons(count) {
+                for (let i = 0; i < count; i++) {
+                    this.balloons.push(new Balloon(this.container));
+                }
+            }
+
+            setBalloonCount(count) {
+                count = Math.min(Math.max(count, 1), 100);
+                this.balloonCount = count;
+                
+                // 移除多余气球
+                while(this.balloons.length > count) {
+                    const balloon = this.balloons.pop();
+                    balloon.element.remove();
+                }
+                
+                // 添加新气球
+                if(count > this.balloons.length) {
+                    this.createBalloons(count - this.balloons.length);
+                }
+            }
+
+            getAudioData() {
+                if (!this.analyser) return { currentDb: 0, normalized: 0 };
+                
+                this.analyser.getByteFrequencyData(this.dataArray);
+                
+                let sum = 0;
+                let validSamples = 0;
+                const startIndex = Math.floor(this.dataArray.length / 3);
+                for(let i = startIndex; i < this.dataArray.length; i++) {
+                    const rawValue = this.dataArray[i] / 255;
+                    const adjustedValue = Math.max(rawValue - this.noiseFloor, 0);
+                    sum += adjustedValue * adjustedValue;
+                    validSamples++;
+                }
+                
+                const rms = validSamples > 0 ? Math.sqrt(sum / validSamples) : 0;
+                const minDb = 0;
+                const maxDb = 100;
+                
+                let currentDb = 20 * Math.log10(rms * this.sensitivity + 1e-6);
+                currentDb = Math.min(Math.max(currentDb, minDb), maxDb);
+                
+                // 平滑处理
+                this.smoothedDb = 0.6 * this.smoothedDb + 0.4 * currentDb;
+                
+                const normalized = (this.smoothedDb - minDb) / (maxDb - minDb);
+                
+                document.querySelector('.db-meter').textContent = 
+                    `🔊 当前：${Math.round(this.smoothedDb)} dB | 阈值：${this.threshold} dB`;
+
+                return {
+                    currentDb: this.smoothedDb,
+                    normalized: normalized
+                };
+            }
+
+            setThreshold(value) {
+                this.threshold = Math.min(Math.max(value, 0), 100);
+                document.querySelector('.db-meter').textContent = 
+                    `🔊 当前：${Math.round(this.smoothedDb)} dB | 阈值：${this.threshold} dB`;
+            }
+
+            setSensitivity(value) {
+                this.sensitivity = Math.min(Math.max(value, 1), 100);
+            }
+
+            animate() {
+                if (this.isAnimating) return;
+                this.isAnimating = true;
+
+                const animateFrame = () => {
+                    const audioData = this.getAudioData();
+                    
+                    this.balloons.forEach(balloon => {
+                        balloon.update(this.gravity, audioData, this.threshold);
+                    });
+
+                    for (let i = 0; i < this.balloons.length; i++) {
+                        for (let j = i + 1; j < this.balloons.length; j++) {
+                            this.balloons[i].checkCollision(this.balloons[j]);
+                        }
+                    }
+
+                    requestAnimationFrame(animateFrame);
+                };
+                animateFrame();
+            }
+
+            handleResize() {
+                this.balloons.forEach(balloon => {
+                    balloon.x = Math.min(balloon.x, window.innerWidth - balloon.radius);
+                    balloon.y = Math.min(balloon.y, window.innerHeight - balloon.radius);
+                    balloon.updatePosition();
+                });
+            }
+        }
+
+        const system = new AudioBounceSystem();
+
+        function setThreshold() {
+            const input = document.getElementById('thresholdInput');
+            let value = parseInt(input.value);
+            value = isNaN(value) ? 50 : Math.min(Math.max(value, 0), 100);
+            system.setThreshold(value);
+            input.value = value;
+        }
+
+        function setSensitivity() {
+            const input = document.getElementById('sensitivityInput');
+            let value = parseInt(input.value);
+            value = isNaN(value) ? 35 : Math.min(Math.max(value, 1), 100);
+            system.setSensitivity(value);
+            input.value = value;
+        }
+
+        function setBalloonCount() {
+            const input = document.getElementById('countInput');
+            let value = parseInt(input.value);
+            value = isNaN(value) ? 15 : Math.min(Math.max(value, 1), 100);
+            system.setBalloonCount(value);
+            input.value = value;
+        }
+    </script>
+</body>
+</html>
